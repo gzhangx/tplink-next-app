@@ -1,9 +1,34 @@
 'use client'
 import Image from "next/image";
 import { util } from '@gzhangx/googleapi'
-import { useEffect } from "react";
+import { useEffect, useRef, forwardRef, createElement, HTMLElementType, useState } from "react";
+import {
+  LineController, Chart, ChartComponentLike, CategoryScale, LinearScale, PointElement,
+  LineElement,
+  ArcElement,
+  Title,
+  Tooltip,
+  Legend } from 'chart.js'
+
+import { orderBy } from 'lodash'
+
 
 export default function Home() {
+
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  type ShortDataSetType = {
+    label: string;
+    color: string;
+    data: number[];
+  };
+  const [curData, setCurData] = useState<{
+    labels: string[];
+    datasets: ShortDataSetType[];
+  }>({
+    labels: [],
+    datasets: [],
+  });
   function doReq() {
     util.doHttpRequest({
       method: 'POST',
@@ -17,17 +42,102 @@ export default function Home() {
       }
     }).then(res => {
       console.log(res.data)
+      const data = orderBy(res.data as {
+        year: number; month: number; day: number; down: number; up: number;
+      }[], ['year', 'month', 'day', 'hour', 'min', 'name']);
+      const newData = { ...curData };
+      newData.labels = data.map(d => `${d.year}-${d.month.toString().padStart(2, '0')}-${d.day.toString().padStart(2, '0')}`);
+      newData.datasets = [];
+      for (const label of ['down', 'up']) {
+        const ds: ShortDataSetType = {
+          label,
+          color: "rgba(78, 115, 223, 1)",
+          data: [],
+        };
+        data.forEach(d => {          
+          ds.data.push(d[label as 'up']);
+        })
+        newData.datasets.push(ds);
+      }
+      setCurData(newData);
     }).catch(err => {
       console.log(err);
     })
   }
+
+  console.log('canvasRef.current', canvasRef.current)
   useEffect(() => {
+    if (document.getElementById('canv1') && canvasRef.current) {
+      console.log('creating chart', canvasRef.current, typeof canvasRef.current)
+      Chart.register(CategoryScale);
+      Chart.register(LineController);
+      Chart.register(LinearScale);
+      Chart.register(
+        CategoryScale,
+        LinearScale,
+        PointElement,
+        LineElement,
+        ArcElement,
+        Title,
+        Tooltip,
+        Legend
+      );
+
+      console.log(curData.labels, curData.datasets)
+
+      const curChartObj = new Chart('canv1', {
+        type: 'line',
+        data: {
+          labels: curData.labels, //["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
+          datasets: curData.datasets.map(d => {
+            return {
+              backgroundColor: "rgba(78, 115, 223, 0.05)",
+              borderColor: "rgba(78, 115, 223, 1)",
+              pointRadius: 3,
+              pointBackgroundColor: "rgba(78, 115, 223, 1)",
+              pointBorderColor: "rgba(78, 115, 223, 1)",
+              pointHoverRadius: 3,
+              pointHoverBackgroundColor: "rgba(78, 115, 223, 1)",
+              pointHoverBorderColor: "rgba(78, 115, 223, 1)",
+              pointHitRadius: 10,
+              pointBorderWidth: 2,
+              ...d
+            };
+          }),
+        },
+        options: {
+          layout: {
+            padding: {
+              left: 10,
+              right: 25,
+              top: 25,
+              bottom: 0
+            }
+          },
+          onHover: (event, elements, chart) => {
+            console.log(event, elements);
+          }
+        }
+        //plugins
+      });
+
+      return () => {
+        curChartObj.destroy();
+      }
+    }
+  }, ['once', canvasRef.current])
+  //Chart.register(LineController);
+  
+
+  useEffect(() => {
+    //addLibrary('https://cdn.jsdelivr.net/npm/chart.js')
     doReq();
   }, ['once'])
   return (
     <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
       <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <button onClick={()=>doReq()}>Test</button>
+        <button onClick={() => doReq()}>Test</button>
+        <canvas id={'canv1'} ref={canvasRef} width={'250px'} height={'250px'} style={{'background':'grey'}}></canvas>
         <Image
           className="dark:invert"
           src="/next.svg"
