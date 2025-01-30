@@ -1,9 +1,9 @@
 'use client'
 import Image from "next/image";
 import { util } from '@gzhangx/googleapi'
-import { useEffect, useRef, forwardRef, createElement, HTMLElementType, useState } from "react";
+import { useEffect, useRef,  useState } from "react";
 import {
-  LineController, Chart, ChartComponentLike, CategoryScale, LinearScale, PointElement,
+  LineController, Chart, CategoryScale, LinearScale, PointElement,
   LineElement,
   ArcElement,
   Title,
@@ -161,7 +161,7 @@ export default function Home() {
               bottom: 0
             }
           },
-          onHover: (event, elements, chart) => {
+          onHover: (event, elements, ) => {
             console.log(event, elements);
           }
         }
@@ -172,7 +172,7 @@ export default function Home() {
         curChartObj.destroy();
       }
     }
-  }, ['once', canvasRef.current, curData.reloadCount])
+  }, [ canvasRef.current, curData.reloadCount, curData.datasets, curData.labels])
   //Chart.register(LineController);
   
 
