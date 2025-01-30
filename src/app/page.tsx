@@ -198,7 +198,7 @@ export default function Home() {
           plugins: {
             legend: {
               labels: {
-                generateLabels: function (chart) {
+                generateLabels: function () {
                   //const original = Chart.overrides.line.plugins.legend.labels.generateLabels;
                   //const labels = original.call(this, chart);
                   //return labels.slice(0, 5);
