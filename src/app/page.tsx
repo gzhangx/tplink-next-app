@@ -1,5 +1,4 @@
 'use client'
-import Image from "next/image";
 import { util } from '@gzhangx/googleapi'
 import { useEffect, useRef,  useState } from "react";
 import {
@@ -8,10 +7,12 @@ import {
   ArcElement,
   Title,
   Tooltip,
-  Legend } from 'chart.js'
+  Legend, 
+  LegendItem} from 'chart.js'
 
 import { orderBy, uniq } from 'lodash'
 
+const MAX_LEGENDS = 5;
 
 export default function Home() {
 
@@ -19,7 +20,7 @@ export default function Home() {
 
   type ShortDataSetType = {
     label: string;
-    color: string;
+    borderColor: string;
     data: number[];
   };
   const [curData, setCurData] = useState<{
@@ -31,6 +32,21 @@ export default function Home() {
     datasets: [],
     reloadCount: 1,
   });
+
+  const colors = Object.freeze([
+    'rgb(235, 55, 20)',
+    'rgb(81, 78, 223)',
+    'rgb(78, 223, 143)',
+    'rgb(223, 78, 223)',
+    'rgb(223, 189, 78)',
+    'rgb(199, 78, 223)',
+    'rgb(194, 78, 223)',
+    'rgb(78, 136, 223)',
+    'rgb(78, 223, 119)',
+    'rgb(77, 93, 30)',
+    'rgb(14, 28, 72)',
+    'rgb(23, 24, 26)',
+  ]);
   function doReq(table: 'trafficLog' | 'deviceTrafficLog') {
     util.doHttpRequest({
       method: 'POST',
@@ -60,11 +76,12 @@ export default function Home() {
       }
       newData.labels = uniq(data.map(rawDataToDate));
       newData.datasets = [];
+      let colorInd = 0;
       if (table === 'trafficLog') {
         for (const label of ['down', 'up']) {
           const ds: ShortDataSetType = {
             label,
-            color: "rgba(78, 115, 223, 1)",
+            borderColor: colors[colorInd++],
             data: [],
           };
           data.forEach(d => {
@@ -73,29 +90,42 @@ export default function Home() {
           newData.datasets.push(ds);
         }
       } else {
-        const deviceNames: string[] = data.reduce((acc, d) => {
+        type DeviceTotal = {
+          name: string;
+          total: number;
+        }
+        const deviceNamesWithTotalUnsorted: DeviceTotal[] = data.reduce((acc, d) => {
           if (!acc.dict[d.deviceName]) {
-            acc.dict[d.deviceName] = true;
-            acc.rows.push(d.deviceName);
+            const dt: DeviceTotal = {
+              name: d.deviceName,
+              total: d.down + d.up,
+            }
+            acc.dict[d.deviceName] = dt;
+            acc.rows.push(dt);
+          } else {
+            acc.dict[d.deviceName].total += d.down + d.up;
           }
           return acc;
         }, {
           dict: {},
           rows: [],
         } as {
-          dict: { [name: string]: boolean; };
-          rows: string[];
+          dict: { [name: string]: DeviceTotal; };
+          rows: DeviceTotal[];
         }).rows;
 
-        for (const label of deviceNames) {
+        const deviceTotalSorted = orderBy(deviceNamesWithTotalUnsorted, d => d.total, 'desc');
+
+        for (const dev of deviceTotalSorted) {
+          const label = `${dev.name}:${(dev.total/1000).toFixed(2)}GB`;
           const ds: ShortDataSetType = {
             label,
-            color: "rgba(78, 115, 223, 1)",
+            borderColor: colors[colorInd++],
             data: [],
           };
           
           for (const day of newData.labels) {
-            const found = data.find(d => d.deviceName === label && rawDataToDate(d) === day);
+            const found = data.find(d => d.deviceName === dev.name && rawDataToDate(d) === day);
             if (!found) {
               ds.data.push(0);
             } else {
@@ -138,10 +168,10 @@ export default function Home() {
           labels: curData.labels, //["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
           datasets: curData.datasets.map(d => {
             return {
-              backgroundColor: "rgba(78, 115, 223, 0.05)",
-              borderColor: "rgba(78, 115, 223, 1)",
+              backgroundColor: d.borderColor,
+              //borderColor: "rgb(39, 24, 4)",
               pointRadius: 3,
-              pointBackgroundColor: "rgba(78, 115, 223, 1)",
+              pointBackgroundColor: d.borderColor,
               pointBorderColor: "rgba(78, 115, 223, 1)",
               pointHoverRadius: 3,
               pointHoverBackgroundColor: "rgba(78, 115, 223, 1)",
@@ -161,8 +191,27 @@ export default function Home() {
               bottom: 0
             }
           },
-          onHover: (event, elements, ) => {
-            console.log(event, elements);
+          onHover: (event, elements,) => {
+            if (!event) 
+              console.log(event, elements);
+          },
+          plugins: {
+            legend: {
+              labels: {
+                generateLabels: function (chart) {
+                  //const original = Chart.overrides.line.plugins.legend.labels.generateLabels;
+                  //const labels = original.call(this, chart);
+                  //return labels.slice(0, 5);
+                  return curData.datasets.map(d => {
+                    const item: LegendItem =  {
+                      text: d.label,                    
+                      fillStyle: d.borderColor,
+                    }
+                    return item;
+                  }).slice(0, MAX_LEGENDS)
+                }
+              }
+            }
           }
         }
         //plugins
@@ -181,103 +230,23 @@ export default function Home() {
     doReq('trafficLog');
   }, ['once'])
   return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <button onClick={() => doReq('trafficLog')}>Router Log</button>
-        <button onClick={() => doReq('deviceTrafficLog')}>Device Log</button>
-        <canvas id={'canv1'} ref={canvasRef} width={'250px'} height={'250px'} style={{'background':'grey'}}></canvas>
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
-
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+    <div className="grid items-center justify-items-center min-h-screen   sm:p-20 font-[family-name:var(--font-geist-sans)]">
+      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start" style={{ width: '100%', height: '100%' }}>
+        <div className="flex gap-4 items-center flex-col sm:flex-row" style={{ height:'60px'}}>          
+          <button className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
+            onClick={() => doReq('trafficLog')}>Router Log</button>          
+          
+          <button className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
+            onClick={() => doReq('deviceTrafficLog')}>Device Log</button>
         </div>
+        
+        <div style={{ width: '80%', height: '80%'}}>
+          <canvas id={'canv1'} ref={canvasRef} width={'150px'} height={'150px'} ></canvas>
+        </div>
+        
+        
+
       </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
     </div>
   );
 }
