@@ -10,7 +10,7 @@ import {
   Tooltip,
   Legend } from 'chart.js'
 
-import { orderBy } from 'lodash'
+import { orderBy, uniq } from 'lodash'
 
 
 export default function Home() {
@@ -25,16 +25,19 @@ export default function Home() {
   const [curData, setCurData] = useState<{
     labels: string[];
     datasets: ShortDataSetType[];
+    reloadCount: number;
   }>({
     labels: [],
     datasets: [],
+    reloadCount: 1,
   });
-  function doReq() {
+  function doReq(table: 'trafficLog' | 'deviceTrafficLog') {
     util.doHttpRequest({
       method: 'POST',
       url: 'http://192.168.0.40:8001/sql',
       data: {
-        "table": "trafficLog",
+        //"table": "trafficLog",
+        table,
         "groupAt": "day",
         "where": [
           //["day", "28", "29"]
@@ -42,27 +45,71 @@ export default function Home() {
       }
     }).then(res => {
       console.log(res.data)
-      const data = orderBy(res.data as {
-        year: number; month: number; day: number; down: number; up: number;
-      }[], ['year', 'month', 'day', 'hour', 'min', 'name']);
+      type RawData = {
+        year: number; month: number; day: number; down: number; up: number; deviceName: string;
+      };
+      const data = orderBy(res.data as RawData[], ['year', 'month', 'day', 'hour', 'min', 'name']);
       const newData = { ...curData };
-      newData.labels = data.map(d => `${d.year}-${d.month.toString().padStart(2, '0')}-${d.day.toString().padStart(2, '0')}`);
-      newData.datasets = [];
-      for (const label of ['down', 'up']) {
-        const ds: ShortDataSetType = {
-          label,
-          color: "rgba(78, 115, 223, 1)",
-          data: [],
-        };
-        data.forEach(d => {          
-          ds.data.push(d[label as 'up']);
-        })
-        newData.datasets.push(ds);
+      function rawDataToDate(d: RawData) {
+        try {
+          return `${d.year}-${d.month.toString().padStart(2, '0')}-${d.day.toString().padStart(2, '0')}`;
+        } catch (err) {
+          console.log('bad data', d);
+          throw err;
+        }
       }
+      newData.labels = uniq(data.map(rawDataToDate));
+      newData.datasets = [];
+      if (table === 'trafficLog') {
+        for (const label of ['down', 'up']) {
+          const ds: ShortDataSetType = {
+            label,
+            color: "rgba(78, 115, 223, 1)",
+            data: [],
+          };
+          data.forEach(d => {
+            ds.data.push(d[label as 'up']);
+          })
+          newData.datasets.push(ds);
+        }
+      } else {
+        const deviceNames: string[] = data.reduce((acc, d) => {
+          if (!acc.dict[d.deviceName]) {
+            acc.dict[d.deviceName] = true;
+            acc.rows.push(d.deviceName);
+          }
+          return acc;
+        }, {
+          dict: {},
+          rows: [],
+        } as {
+          dict: { [name: string]: boolean; };
+          rows: string[];
+        }).rows;
+
+        for (const label of deviceNames) {
+          const ds: ShortDataSetType = {
+            label,
+            color: "rgba(78, 115, 223, 1)",
+            data: [],
+          };
+          
+          for (const day of newData.labels) {
+            const found = data.find(d => d.deviceName === label && rawDataToDate(d) === day);
+            if (!found) {
+              ds.data.push(0);
+            } else {
+              ds.data.push(found.down + found.up);
+            }
+          }
+          newData.datasets.push(ds);
+        }
+      }
+      newData.reloadCount = curData.reloadCount + 1;
       setCurData(newData);
     }).catch(err => {
       console.log(err);
-    })
+    })  
   }
 
   console.log('canvasRef.current', canvasRef.current)
@@ -125,18 +172,19 @@ export default function Home() {
         curChartObj.destroy();
       }
     }
-  }, ['once', canvasRef.current])
+  }, ['once', canvasRef.current, curData.reloadCount])
   //Chart.register(LineController);
   
 
   useEffect(() => {
     //addLibrary('https://cdn.jsdelivr.net/npm/chart.js')
-    doReq();
+    doReq('trafficLog');
   }, ['once'])
   return (
     <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
       <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <button onClick={() => doReq()}>Test</button>
+        <button onClick={() => doReq('trafficLog')}>Router Log</button>
+        <button onClick={() => doReq('deviceTrafficLog')}>Device Log</button>
         <canvas id={'canv1'} ref={canvasRef} width={'250px'} height={'250px'} style={{'background':'grey'}}></canvas>
         <Image
           className="dark:invert"
